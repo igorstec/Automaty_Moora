@@ -5,7 +5,7 @@
 // w synchronicznych układach cyfrowych. Implementacja zakłada dynamiczne tworzenie, łączenie,
 // aktualizację i usuwanie automatów Moore’a oraz obsługę ich stanów i połączeń.
 
-#include "ma.h"
+#include "ma_lib/ma.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -90,9 +90,9 @@ moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
     a->state = calloc(ILE_UINT(s), sizeof(uint64_t));
     a->output = calloc(ILE_UINT(m), sizeof(uint64_t));
     a->podlaczenia_do_a = calloc(n, sizeof(polaczenie_t));
-    if(!a->podlaczenia_do_a || !a->input || !a->state || !a->output) {
+    if (!a->podlaczenia_do_a || !a->input || !a->state || !a->output) {
         free(a->podlaczenia_do_a);
-        a->podlaczenia_do_a=NULL;
+        a->podlaczenia_do_a = NULL;
         free(a->input);
         a->input = NULL;
         free(a->state);
@@ -243,13 +243,13 @@ void ma_delete(moore_t *a) {
     //mosze dzeiciom powiedzeic ze nie jestem juz ich rodzicem
     current = a->polaczenia_dzieci;
     while (current != NULL) {
-        if (current->pol_dziecko->ja!=NULL) {
-            loost_t *rodzicout=current->pol_dziecko->ja->rodzice;
-            while(rodzicout!=NULL) {
-                if (rodzicout->rodzic==a) {
-                    rodzicout->rodzic=NULL;
+        if (current->pol_dziecko->ja != NULL) {
+            loost_t *rodzicout = current->pol_dziecko->ja->rodzice;
+            while (rodzicout != NULL) {
+                if (rodzicout->rodzic == a) {
+                    rodzicout->rodzic = NULL;
                 }
-                rodzicout=rodzicout->nxt;
+                rodzicout = rodzicout->nxt;
             }
         }
         current = current->nxt;
@@ -259,10 +259,10 @@ void ma_delete(moore_t *a) {
     //aktualizacja listy polaczen
     loost_t *rodziciel = a->rodzice->nxt;
 
-    while (rodziciel!=NULL) {
+    while (rodziciel != NULL) {
         //usuwa polaczenia ktora juz nie wystapia z powodu destrukcji dziecko(a_in)
         moore_t *rodzic = rodziciel->rodzic;
-        if (rodzic!=NULL) {
+        if (rodzic != NULL) {
             list_t *next = rodzic->polaczenia_dzieci;
             while (next) {
                 if (next->nxt) {
