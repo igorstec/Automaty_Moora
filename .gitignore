@@ -1,0 +1,11 @@
+# Ignoruj wszystko
+*
+.idea/
+
+# Nie ignoruj tych plików:
+!ma.c
+!ma.h
+!Makefile
+!ma_example.c
+!memory_tests.c
+!memory_tests.h
