@@ -1,6 +1,5 @@
 # Ignoruj wszystko
 *
-.idea/
 
 # Nie ignoruj tych plików:
 !ma.c
