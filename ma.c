@@ -5,7 +5,7 @@
 // w synchronicznych układach cyfrowych. Implementacja zakłada dynamiczne tworzenie, łączenie,
 // aktualizację i usuwanie automatów Moore’a oraz obsługę ich stanów i połączeń.
 
-#include "ma_lib/ma.h"
+#include "ma.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -13,7 +13,6 @@
 #include <errno.h>
 #include <string.h>
 #include <stdint.h>
-#include <math.h>
 #include <malloc.h>
 
 #define ILE_UINT(x) (((x) + 63) / 64) // Oblicza liczbę 64-bitowych słów potrzebnych na x bitów
@@ -26,17 +25,12 @@ typedef struct polaczenie {
     moore_t *ja; // Automat, który pobiera bit
 } polaczenie_t;
 
-// Lista jednokierunkowa dla potomków (dzieci)
-typedef struct List {
-    polaczenie_t *pol_dziecko; // Wskaźnik na połączenie
-    struct List *nxt; // Kolejny element listy
-} list_t;
 
-// Lista jednokierunkowa dla rodziców (nadrzędnych automatów)
+// Lista jednokierunkowa dla automatow
 typedef struct Lista {
-    moore_t *rodzic; // Wskaźnik na rodzica
+    moore_t *automat_moore; // Wskaźnik na potomka
     struct Lista *nxt; // Kolejny element listy
-} loost_t;
+} list_ma;
 
 // Reprezentacja automatu Moore'a
 struct moore {
@@ -49,21 +43,10 @@ struct moore {
     uint64_t *output; // Bufor wyjść
     uint64_t *next_state; // Bufor na przyszły stan
 
-    list_t *polaczenia_dzieci; // Lista połączeń dzieci
-    loost_t *rodzice; // Lista rodziców
+    list_ma *rodzice; // Lista rodziców
+    list_ma *dzieci; // Lista dzieci
     polaczenie_t *podlaczenia_do_a; // Połączenia wejść
 };
-
-// Ustawia stan automatu i aktualizuje wyjście
-int ma_set_state(moore_t *a, uint64_t const *state) {
-    if (!a || !state) {
-        errno = EINVAL;
-        return -1;
-    }
-    memcpy(a->state, state, ILE_UINT(a->s) * sizeof(uint64_t));
-    a->y(a->output, a->state, a->m, a->s);
-    return 0;
-}
 
 // Tworzy nowy, kompletny automat Moore’a
 moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
@@ -88,6 +71,9 @@ moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
     // Alokacja buforów
     a->input = calloc(ILE_UINT(n), sizeof(uint64_t));
     a->state = calloc(ILE_UINT(s), sizeof(uint64_t));
+    //next_state nie jest alokowany gdyz alokujemy go i zarówno zwalniamy zawsze w ma_step
+    //dlatego tez ostatecznie nie trzeba w delete go free'ować
+
     a->output = calloc(ILE_UINT(m), sizeof(uint64_t));
     a->podlaczenia_do_a = calloc(n, sizeof(polaczenie_t));
     if (!a->podlaczenia_do_a || !a->input || !a->state || !a->output) {
@@ -104,18 +90,16 @@ moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
         errno = ENOMEM;
         return NULL;
     }
-    // Tworzenie sztucznych (pustych) węzłów listy dzieci i rodziców
-    list_t *lista = calloc(1, sizeof(list_t));
-    loost_t *lost = calloc(1, sizeof(loost_t));
-    polaczenie_t *puste_pudlo = calloc(1, sizeof(polaczenie_t));
+    // Tworzenie sztucznych (pustych) węzłów list
+    list_ma *malist = calloc(1, sizeof(list_ma));
+    list_ma *malist2 = calloc(1, sizeof(list_ma));
 
-    if (!lista || !lost || !puste_pudlo) {
-        free(lista);
-        lista = NULL;
-        free(lost);
-        lost = NULL;
-        free(puste_pudlo);
-        puste_pudlo = NULL;
+    if (!malist || !malist2) {
+
+        free(malist);
+        malist = NULL;
+        free(malist2);
+        malist2 = NULL;
         free(a->podlaczenia_do_a);
         a->podlaczenia_do_a = NULL;
         free(a->input);
@@ -130,9 +114,8 @@ moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
         return NULL;
     }
 
-    lista->pol_dziecko = puste_pudlo;
-    a->polaczenia_dzieci = lista;
-    a->rodzice = lost;
+    a->rodzice = malist; //do naprawy
+    a->dzieci = malist2;
 
     memcpy(a->state, q, ILE_UINT(a->s) * sizeof(uint64_t));
     a->y(a->output, a->state, a->m, a->s);
@@ -147,26 +130,25 @@ moore_t *ma_create_full(size_t n, size_t m, size_t s, transition_function_t t,
     return a;
 }
 
-/** Zwalnia całą listę jednokierunkową `list_t`. */
-void free_list(list_t *head) {
-    list_t *current = head;
-    free(current->pol_dziecko);
-    current->pol_dziecko = NULL;
-    while (current != NULL) {
-        list_t *next_node = current->nxt;
-        free(current);
-        current = NULL;
-        current = next_node;
+// Ustawia stan automatu i aktualizuje wyjście
+int ma_set_state(moore_t *a, uint64_t const *state) {
+    if (!a || !state) {
+        errno = EINVAL;
+        return -1;
     }
+    memcpy(a->state, state, ILE_UINT(a->s) * sizeof(uint64_t));
+    a->y(a->output, a->state, a->m, a->s);
+    return 0;
 }
 
-/** Zwalnia całą listę jednokierunkową `loost_t`. */
-void free_loost(loost_t *head) {
-    loost_t *current = head;
+
+
+/** Zwalnia całą listę jednokierunkową `list_ma`. */
+void free_list_ma(list_ma *head) {
+    list_ma *current = head;
     while (current != NULL) {
-        loost_t *next_node = current->nxt;
+        list_ma *next_node = current->nxt;
         free(current);
-        current = NULL;
         current = next_node;
     }
 }
@@ -192,18 +174,18 @@ moore_t *ma_create_simple(size_t n, size_t s, transition_function_t t) {
     }
     moore_t *a = ma_create_full(n, s, s, t, identycznosc, q);
     free(q);
-    q = NULL;
+    q = NULL;//nule do usuniecia na koniec
     return a;
 }
 
 
 /** Ustawia wejścia dla automatu - podpiete nie maja znaczenia bo i tak w ma_step sie zaktualizują */
 int ma_set_input(moore_t *a, uint64_t const *input) {
-    if (a == NULL || input == NULL || a->n == 0) {
+    if (a == NULL || input == NULL || a->n == 0) {//? a->n ==0?
         errno = EINVAL;
         return -1;
     }
-    int slowa = ILE_UINT(a->n);
+    size_t slowa = ILE_UINT(a->n);
     memcpy(a->input, input, sizeof(uint64_t) * slowa);
 
     return 0;
@@ -229,66 +211,76 @@ void ma_delete(moore_t *a) {
     a->input = NULL;
     free(a->output);
     a->output = NULL;
-
-    list_t *current = a->polaczenia_dzieci;
-
-    //disconnectujemy automaty (dzieci ) ktore byly podlaczone do wyjscia a
-    while (current != NULL) {
-        if (current->pol_dziecko->a_z_kad == a) {
-            current->pol_dziecko->a_z_kad = NULL;
-        }
-        current = current->nxt;
-    };
-
-    //mosze dzeiciom powiedzeic ze nie jestem juz ich rodzicem
-    current = a->polaczenia_dzieci;
-    while (current != NULL) {
-        if (current->pol_dziecko->ja != NULL) {
-            loost_t *rodzicout = current->pol_dziecko->ja->rodzice;
-            while (rodzicout != NULL) {
-                if (rodzicout->rodzic == a) {
-                    rodzicout->rodzic = NULL;
-                }
-                rodzicout = rodzicout->nxt;
-            }
-        }
-        current = current->nxt;
-    }
-
-
-    //aktualizacja listy polaczen
-    loost_t *rodziciel = a->rodzice->nxt;
-
-    while (rodziciel != NULL) {
-        //usuwa polaczenia ktora juz nie wystapia z powodu destrukcji dziecko(a_in)
-        moore_t *rodzic = rodziciel->rodzic;
-        if (rodzic != NULL) {
-            list_t *next = rodzic->polaczenia_dzieci;
-            while (next) {
-                if (next->nxt) {
-                    list_t *tempo = next->nxt;
-                    while (tempo && tempo->pol_dziecko->ja == a) {
-                        list_t *temp = tempo->nxt;
-                        free(tempo);
-                        tempo = NULL;
-                        next->nxt = temp;
-                        tempo = temp;
-                    }
-                }
-                next = next->nxt;
-            }
-        }
-        rodziciel = rodziciel->nxt;
-    }
-
-
-    free_loost(a->rodzice);
-    free_list(a->polaczenia_dzieci);
+    //next_state jest juz free
 
     free(a->podlaczenia_do_a);
     a->podlaczenia_do_a = NULL;
+
+
+    //disconnectujemy automaty (dzieci ) ktore byly podlaczone do wyjscia a
+    list_ma *dzieci = a->dzieci->nxt;
+
+    while (dzieci) {
+        moore_t *dziecko = dzieci->automat_moore;
+        for (size_t i=0; i<dziecko->n; i++) {
+            if (dziecko->podlaczenia_do_a[i].a_z_kad==a) {
+                dziecko->podlaczenia_do_a[i].a_z_kad = NULL;
+            }
+        }
+        //mosze dzeiciom powiedzeic ze nie jestem juz ich rodzicem
+        list_ma *rodzice = dziecko->rodzice->nxt;
+        list_ma *poprzedni = dziecko->rodzice;
+        while (rodzice) {
+            if (rodzice->automat_moore==a) {
+                poprzedni->nxt = rodzice->nxt; //usuwamy z listy rodzicow
+                free(rodzice);
+                rodzice = NULL;
+                break;
+            }
+            poprzedni = rodzice;
+            rodzice = rodzice->nxt;
+        }
+        dzieci=dzieci->nxt;
+    }
+
+    //mose rodzicom powiedziec ze zostaje wydziedziczony
+    list_ma *rodzice = a->rodzice->nxt;
+
+    while (rodzice) {
+        moore_t *rodzic = rodzice->automat_moore;
+        dzieci = rodzic->dzieci->nxt;
+        list_ma *poprzedni = rodzic->dzieci;
+        while (dzieci) {
+            if (dzieci->automat_moore==a) {
+                poprzedni->nxt = rodzice->nxt; //usuwamy z listy rodzicow
+                free(rodzice);
+                rodzice = NULL;
+                break;
+            }
+            poprzedni = dzieci;
+            dzieci = dzieci->nxt;
+        }
+        rodzice = rodzice->nxt;
+    }
+
+    free_list_ma(a->rodzice);
+    free_list_ma(a->dzieci);
     free(a);
     a = NULL;
+}
+void dodaj_do_listy(list_ma *head, moore_t *a) {
+    if (a == NULL || head == NULL) {
+        errno = EINVAL;
+        return;
+    }
+    list_ma *new_node = calloc(1, sizeof(list_ma));
+    if (!new_node) {
+        errno = ENOMEM;
+        return;
+    }
+    new_node->automat_moore = a;
+    new_node->nxt = head->nxt;
+    head->nxt = new_node;
 }
 
 /** Tworzy połączenia między automatami i aktualizuje struktury. */
@@ -297,32 +289,34 @@ int ma_connect(moore_t *a_in, size_t in, moore_t *a_out, size_t out, size_t num)
         errno = EINVAL;
         return -1;
     }
-    loost_t *temp = calloc(1, sizeof(loost_t));
-    if (!temp) {
-        errno = ENOMEM;
-        return -1;
-    } //jezeli tego rodzica jescze nie bylo - jest nowy
-    temp->rodzic = a_out;
-
-
-    list_t *dziecko = a_out->polaczenia_dzieci;
-
-    while (dziecko->nxt) { dziecko = dziecko->nxt; } //ostatnie dziecko(pierwsze na pewno istnieje)
-    size_t i = 0;
-    //patrzymy czy na poczatku alokacja pamieci zadziala oraz dodajemy poloczenia z a_in jako dziaeci a_out
-    while (i < num) {
-        list_t *syn = calloc(1, sizeof(list_t));
-        if (!syn) {
-            errno = ENOMEM;
-            return -1;
+    list_ma *rodzice = a_in->rodzice;
+    while(rodzice->nxt) {
+        if(rodzice->nxt->automat_moore == a_out) {
+            break;
         }
-        syn->pol_dziecko = &(a_in->podlaczenia_do_a[in + i]);
-        dziecko->nxt = syn;
-        dziecko = dziecko->nxt;
-        i++;
+        rodzice = rodzice->nxt;
     }
-    //łaczyny dane bity
-    i = 0;
+    if(rodzice->nxt == NULL) {
+        dodaj_do_listy(rodzice, a_out);
+        if(errno == ENOMEM) {
+            return -1; // Błąd alokacji pamięci
+        }
+    }
+
+    list_ma *dzieci = a_out->dzieci;
+    while(dzieci->nxt) {
+        if(dzieci->nxt->automat_moore == a_in) {
+            break;
+        }
+        dzieci = dzieci->nxt;
+    }
+    if(dzieci->nxt == NULL) {
+        dodaj_do_listy(dzieci, a_in);
+        if(errno == ENOMEM) {
+            return -1; // Błąd alokacji pamięci
+        }
+    }
+    size_t i = 0;
     while (i < num) {
         a_in->podlaczenia_do_a[in + i].bit_biore = out + i;
         a_in->podlaczenia_do_a[in + i].a_z_kad = a_out;
@@ -330,18 +324,6 @@ int ma_connect(moore_t *a_in, size_t in, moore_t *a_out, size_t out, size_t num)
         i++;
     }
 
-    //dodajemy a_out jako rodzic a_in
-    loost_t *rodziciel = a_in->rodzice;
-    while (rodziciel->nxt) {
-        if (rodziciel->nxt->rodzic == a_out) { break; }
-        rodziciel = rodziciel->nxt;
-    }
-    if (rodziciel->nxt == NULL) {
-        rodziciel->nxt = temp;
-    } else {
-        free(temp);
-        temp = NULL;
-    }
     return 0;
 }
 
@@ -371,12 +353,18 @@ int ma_step(moore_t *at[], size_t num) {
     for (size_t i = 0; i < num; i++) {
         moore_t *a = at[i];
         if (a == NULL) {
+            for(size_t j=0; j<i;j++) {
+                free(at[j]->next_state);
+            }
             errno = EINVAL;
             return -1;
         }
         size_t uint_state = ILE_UINT(a->s);
         uint64_t *next_state = calloc(uint_state, sizeof(uint64_t));
         if (!next_state) {
+            for(size_t j=0; j<i;j++) {
+                free(at[j]->next_state);
+            }
             errno = ENOMEM;
             return -1;
         }
@@ -389,13 +377,13 @@ int ma_step(moore_t *at[], size_t num) {
         moore_t *a = at[i];
 
         //aktualizacja input
-        for (uint64_t j = 0; j < a->n; j++) {
+        for (size_t j = 0; j < a->n; j++) {
             moore_t *b = a->podlaczenia_do_a[j].a_z_kad;
             if (b != NULL) {
                 uint64_t zkad = b->output[ILE_UINT(a->podlaczenia_do_a[j].bit_biore+1) - 1];
                 uint64_t x = 1ULL << (a->podlaczenia_do_a[j].bit_biore % 64);
                 uint64_t y = x & zkad;
-                int slowo = ILE_UINT(j+1) - 1;
+                size_t slowo = ILE_UINT(j+1) - 1;
 
                 if (y > 0) {
                     a->input[slowo] |= y;

@@ -1,4 +1,5 @@
 # Makefile for Moore automata project with memory tests and debugging
+
 CC = gcc
 CFLAGS = -std=gnu17 -Wall -Wextra -pedantic -g -fPIC
 LDFLAGS = -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc \
