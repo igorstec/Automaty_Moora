@@ -2,9 +2,10 @@
 *
 
 # Nie ignoruj tych plików:
-!ma.c
-!ma.h
-!Makefile
-!ma_example.c
-!memory_tests.c
-!memory_tests.h
+!src/ma.c
+!src/ma.h
+!src/Makefile
+!src/ma_example.c
+!src/memory_tests.c
+!src/memory_tests.h
+!src/ma_tests.c
